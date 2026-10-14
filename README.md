@@ -6,7 +6,10 @@ https://sinkers.github.io/devlog/.
 - `posts/YYYY-MM-DD-<slug>.md`: the article. Frontmatter: `title`, `project`,
   `repos`, `canonical`, `summary`, `hero`, `hero_alt`, `channels`.
 - `images/YYYY-MM-DD-<slug>/`: the hero (required, 1200×630) and figures.
-- `social/YYYY-MM-DD-<slug>/`: LinkedIn post, thread, short summary.
+- `social/YYYY-MM-DD-<slug>/`: LinkedIn post, thread, short summary, and
+  `medium.md` (subtitle, tags, Medium-audience opening). The Medium version is
+  built to `/YYYY/MM/DD/<slug>/medium/` for pasting into Medium, which takes no
+  new API integrations; it is noindex and canonical to the post.
 - `build.py`: builds `_site/`. `check.py`: what every post must pass.
 
 Merging to `main` publishes. Drafts arrive as PRs from the dashboard's

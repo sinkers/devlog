@@ -7,6 +7,11 @@ One post is posts/YYYY-MM-DD-<slug>.md with frontmatter; it is served at
 as ../images/<post>/x.png, so the markdown previews on GitHub too. Every post
 has a hero, which is also its og:image: links to it preview with a picture
 wherever they are pasted.
+
+A post with social/<post>/medium.md also gets /YYYY/MM/DD/<slug>/medium/: the
+Medium version laid out to be copied into Medium's editor in one go (Medium
+takes no new API integrations). It is noindex with its canonical pointing at
+the post, so it never competes with the original.
 """
 from __future__ import annotations
 
@@ -50,6 +55,19 @@ def frontmatter(text: str) -> tuple[dict, str]:
     return out, text[m.end():]
 
 
+def figures(html_: str) -> str:
+    """An image paragraph followed by an italic-only paragraph becomes
+    <figure> + <figcaption>. Medium's importer and editor both keep that as
+    an image with its caption; two loose paragraphs they do not."""
+    html_ = re.sub(r'<p>(<img [^>]+>)</p>\s*<p><em>(.*?)</em></p>',
+                   r"<figure>\1<figcaption>\2</figcaption></figure>", html_, flags=re.S)
+    return re.sub(r"<p>(<img [^>]+>)</p>", r"<figure>\1</figure>", html_)
+
+
+def md(text: str) -> str:
+    return figures(markdown.markdown(text, extensions=["fenced_code", "tables", "sane_lists"]))
+
+
 def load_posts() -> list[dict]:
     posts = []
     for f in sorted((ROOT / "posts").glob("*.md"), reverse=True):
@@ -62,6 +80,14 @@ def load_posts() -> list[dict]:
         body = body.replace("](../images/", f"]({BASE}/images/")
         path = f"{y}/{mo}/{d}/{slug}/"
         hero = fm.get("hero", "")
+        medium = None
+        mf = ROOT / "social" / f.stem / "medium.md"
+        if mf.exists():
+            mfm, mbody = frontmatter(mf.read_text(encoding="utf-8"))
+            # Absolute image URLs: pasted into Medium, relative ones break.
+            mbody = mbody.replace("](../../images/", f"]({SITE}/images/")
+            medium = {**mfm, "html": md(mbody),
+                      "hero_url": mfm.get("hero", "").replace("../../images/", f"{SITE}/images/")}
         posts.append({
             **fm,
             "date": datetime(int(y), int(mo), int(d), tzinfo=timezone.utc),
@@ -69,8 +95,9 @@ def load_posts() -> list[dict]:
             "url": f"{SITE}/{path}",
             "hero_url": hero.replace("../images/", f"{SITE}/images/") if hero else "",
             "hero_src": hero.replace("../images/", f"{BASE}/images/") if hero else "",
-            "html": markdown.markdown(body, extensions=["fenced_code", "tables", "sane_lists"]),
+            "html": md(body),
             "words": len(body.split()),
+            "medium": medium,
         })
     return posts
 
@@ -91,8 +118,12 @@ h1{font-size:36px;line-height:1.15;margin:22px 0 8px;letter-spacing:-.01em}
 .meta{color:var(--muted);font-size:14px;margin-bottom:26px}
 article h2{font-size:23px;margin:38px 0 6px;line-height:1.25}
 article p,article ul,article ol{margin:12px 0}
-article img{max-width:100%;height:auto;border:1px solid var(--line);border-radius:6px;margin:10px 0 0}
-article p:has(> img)+p>em:only-child{display:block;color:var(--muted);font-size:14px;margin-top:-4px}
+article figure{margin:22px 0}
+article img{max-width:100%;height:auto;border:1px solid var(--line);border-radius:6px;display:block}
+article figcaption{color:var(--muted);font-size:14px;margin-top:6px}
+.howto{border:1px dashed var(--accent);border-radius:8px;padding:14px 18px;font-size:15px;margin-bottom:26px}
+.howto ol{margin:6px 0 0;padding-left:20px}
+.howto code{user-select:all}
 code{font-family:"IBM Plex Mono",ui-monospace,Menlo,monospace;font-size:.86em;background:var(--code);padding:1px 5px;border-radius:4px}
 pre{background:var(--code);padding:14px 16px;border-radius:8px;overflow-x:auto;font-size:14px;line-height:1.5}
 pre code{background:none;padding:0;font-size:inherit}
@@ -105,7 +136,8 @@ footer.site{border-top:1px solid var(--line);margin-top:56px;padding:22px 0 40px
 """
 
 
-def page(title: str, body: str, *, desc: str, url: str, image: str = "", article: dict | None = None) -> str:
+def page(title: str, body: str, *, desc: str, url: str, image: str = "", article: dict | None = None,
+         noindex: bool = False) -> str:
     og = [
         f'<meta property="og:title" content="{e(title)}">',
         f'<meta property="og:description" content="{e(desc)}">',
@@ -133,7 +165,7 @@ def page(title: str, body: str, *, desc: str, url: str, image: str = "", article
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{e(title)}</title>
 <meta name="description" content="{e(desc)}">
-<link rel="canonical" href="{e(url)}">
+<link rel="canonical" href="{e(url)}">{'<meta name="robots" content="noindex">' if noindex else ''}
 <link rel="alternate" type="application/rss+xml" title="{NAME}" href="{SITE}/feed.xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400&family=IBM+Plex+Sans:wght@400;600&display=swap">
@@ -157,6 +189,28 @@ def post_page(p: dict) -> str:
 {p['html']}
 </article>"""
     return page(p["title"], body, desc=p.get("summary", ""), url=p["url"], image=p["hero_url"], article=p)
+
+
+def medium_page(p: dict) -> str:
+    m = p["medium"]
+    tags = m.get("tags") or []
+    body = f"""<div class="howto"><b>Medium copy.</b> Not for reading here: this is the Medium version of
+<a href="{BASE}/{p['path']}">the post</a>, laid out to paste into Medium.
+<ol>
+<li>Select from the picture below to the last line, copy, and paste into a new Medium story.
+Or use <a href="https://medium.com/p/import">Import a story</a> with
+<code>{e(p['url'])}</code> and paste only the opening section from here.</li>
+<li>Subtitle: <code>{e(m.get('subtitle', ''))}</code></li>
+<li>Tags: {' '.join(f'<code>{e(t)}</code>' for t in tags)}</li>
+<li>Story settings → Advanced → canonical link: <code>{e(p['url'])}</code></li>
+</ol></div>
+<article>
+<figure><img src="{e(m['hero_url'])}" alt="{e(m.get('hero_alt', ''))}" width="1200" height="630"></figure>
+<h1>{e(m.get('title') or p['title'])}</h1>
+<p><em>{e(m.get('subtitle', ''))}</em></p>
+{m['html']}
+</article>"""
+    return page(f"Medium copy: {p['title']}", body, desc=p.get("summary", ""), url=p["url"], noindex=True)
 
 
 def index_page(posts: list[dict]) -> str:
@@ -191,6 +245,9 @@ def main() -> int:
         d = OUT / p["path"]
         d.mkdir(parents=True)
         (d / "index.html").write_text(post_page(p), encoding="utf-8")
+        if p["medium"]:
+            (d / "medium").mkdir()
+            (d / "medium" / "index.html").write_text(medium_page(p), encoding="utf-8")
     (OUT / "index.html").write_text(index_page(posts), encoding="utf-8")
     (OUT / "feed.xml").write_text(feed(posts), encoding="utf-8")
     (OUT / "sitemap.xml").write_text(

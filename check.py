@@ -8,6 +8,8 @@
 - 600-1200 words, at least one code block
 - every github.com/<o>/<r>/blob link is pinned to a commit sha, never a branch
 - every link resolves, and every linked repo is public
+- `medium` in channels: social/<post>/medium.md exists with a subtitle, one
+  to five tags (Medium's limit), the post's canonical and a hero
 
 What this cannot check is what must not be said: private repo names and each
 project's `avoid` list live in the dashboard, and listing them here would
@@ -95,6 +97,20 @@ def check(post: Path, online: bool) -> list[str]:
         if re.match(r"https://github\.com/[^/]+/[^/]+/(blob|tree)/", url) and \
                 not re.match(r"https://github\.com/[^/]+/[^/]+/(blob|tree)/[0-9a-f]{40}/", url):
             errs.append(f"not pinned to a commit: {url}")
+    if "medium" in (fm.get("channels") or []):
+        mf = ROOT / "social" / post.stem / "medium.md"
+        if not mf.exists():
+            errs.append("channels has medium but there is no medium.md")
+        else:
+            mfm, _ = frontmatter(mf.read_text(encoding="utf-8"))
+            if not mfm.get("subtitle"):
+                errs.append("medium.md has no subtitle")
+            if not 1 <= len(mfm.get("tags") or []) <= 5:
+                errs.append("medium.md needs 1-5 tags")
+            if mfm.get("canonical") != fm.get("canonical"):
+                errs.append("medium.md canonical differs from the post's")
+            if not mfm.get("hero"):
+                errs.append("medium.md has no hero")
     if online:
         for url in sorted(links):
             if not resolves(url):

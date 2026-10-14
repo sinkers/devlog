@@ -5,7 +5,7 @@ repos: [sinkers/sd-dc]
 canonical: https://sinkers.github.io/devlog/2026/10/13/pipe-router/
 hero: ../images/2026-10-13-pipe-router/hero.png
 hero_alt: "Isometric view of routed chilled-water pipes beside a 3D model of a supported cable tray"
-channels: [devlog, github, devto, bluesky, mastodon, linkedin]
+channels: [devlog, github, devto, hashnode, bluesky, mastodon, linkedin, medium]
 summary: "SD-DC now routes chilled-water pipes and cable trays as agent services. On a real 34-pipe design it matches the hand routing and comes in 2 m shorter, and when a route can't be built it explains why."
 ---
 
