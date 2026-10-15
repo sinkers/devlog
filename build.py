@@ -12,6 +12,11 @@ A post with social/<post>/medium.md also gets /YYYY/MM/DD/<slug>/medium/: the
 Medium version laid out to be copied into Medium's editor in one go (Medium
 takes no new API integrations). It is noindex with its canonical pointing at
 the post, so it never competes with the original.
+
+/articles/ is the index of everything: devlog posts, and articles published
+elsewhere (Medium and so on), each listed by a small elsewhere/<date>-<slug>.md
+holding only frontmatter: title, date, url, venue, project, summary, hero.
+articles.json is the same index as data.
 """
 from __future__ import annotations
 
@@ -102,6 +107,31 @@ def load_posts() -> list[dict]:
     return posts
 
 
+def load_elsewhere() -> list[dict]:
+    """Articles published somewhere else, listed in the index and linked out.
+    Same hero rule as posts: an entry without one fails the build."""
+    out = []
+    d = ROOT / "elsewhere"
+    for f in sorted(d.glob("*.md")) if d.exists() else []:
+        fm, _ = frontmatter(f.read_text(encoding="utf-8"))
+        hero = fm.get("hero", "")
+        out.append({
+            **fm,
+            "date": datetime.fromisoformat(fm["date"]).replace(tzinfo=timezone.utc),
+            "external": True,
+            "href": fm["url"],
+            "hero_src": hero.replace("../images/", f"{BASE}/images/") if hero else "",
+            "hero_url": hero.replace("../images/", f"{SITE}/images/") if hero else "",
+            "words": int(fm.get("words") or 0),
+            "source": f.name,
+        })
+    return out
+
+
+def minutes(words: int) -> str:
+    return f"{max(1, round(words / 230))} min read" if words else ""
+
+
 CSS = """
 :root{--bg:#fbfbfa;--ink:#1a1d22;--muted:#6a707c;--line:#e4e5e8;--code:#f1f2f4;--accent:#3d43a0}
 @media (prefers-color-scheme:dark){:root{--bg:#121417;--ink:#e6e8ec;--muted:#9aa1ad;--line:#2a2f37;--code:#1c2026;--accent:#9ea3ee}}
@@ -112,7 +142,24 @@ a{color:var(--accent)}
 header.site{border-bottom:1px solid var(--line);padding:18px 0;margin-bottom:28px}
 header.site .wrap{display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap}
 header.site a.name{font-weight:600;color:var(--ink);text-decoration:none;font-size:18px}
-header.site span{color:var(--muted);font-size:14px}
+header.site nav{display:flex;gap:16px;font-size:15px}
+header.site nav a{color:var(--muted);text-decoration:none}
+header.site nav a:hover,header.site nav a.on{color:var(--ink)}
+.tagline{color:var(--muted);font-size:15px;margin:-8px 0 26px}
+.idx h1{margin-top:0}
+.idx h2{font-size:14px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:34px 0 6px;font-weight:600}
+.row{display:grid;grid-template-columns:150px minmax(0,1fr);gap:16px;padding:14px 0;border-top:1px solid var(--line);text-decoration:none;color:inherit}
+.row:hover .t{color:var(--accent)}
+.row img{width:150px;height:auto;aspect-ratio:1200/630;object-fit:cover;border-radius:5px;border:1px solid var(--line);display:block}
+.row .t{font-weight:600;font-size:18px;line-height:1.3}
+.row .s{color:var(--muted);font-size:15px;margin-top:3px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.row .m{color:var(--muted);font-size:13.5px;margin-top:4px}
+.pill{display:inline-block;font-size:12.5px;border:1px solid var(--line);border-radius:99px;padding:0 9px;margin-right:6px;color:var(--muted);text-decoration:none}
+.projects{display:flex;flex-wrap:wrap;gap:8px;margin:4px 0 8px}
+.more{border-top:1px solid var(--line);margin-top:46px;padding-top:6px}
+.more h2{font-size:14px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:600;margin:18px 0 4px}
+.all{display:inline-block;margin-top:14px;font-weight:600}
+@media (max-width:560px){.row{grid-template-columns:96px minmax(0,1fr);gap:12px}.row img{width:96px}.row .t{font-size:16px}}
 .hero{display:block;width:100%;height:auto;border-radius:8px;border:1px solid var(--line);aspect-ratio:1200/630;object-fit:cover}
 h1{font-size:36px;line-height:1.15;margin:22px 0 8px;letter-spacing:-.01em}
 .meta{color:var(--muted);font-size:14px;margin-bottom:26px}
@@ -137,7 +184,7 @@ footer.site{border-top:1px solid var(--line);margin-top:56px;padding:22px 0 40px
 
 
 def page(title: str, body: str, *, desc: str, url: str, image: str = "", article: dict | None = None,
-         noindex: bool = False) -> str:
+         noindex: bool = False, nav: str = "") -> str:
     og = [
         f'<meta property="og:title" content="{e(title)}">',
         f'<meta property="og:description" content="{e(desc)}">',
@@ -173,21 +220,43 @@ def page(title: str, body: str, *, desc: str, url: str, image: str = "", article
 {ld}
 <style>{CSS}</style>
 </head><body>
-<header class="site"><div class="wrap"><a class="name" href="{BASE}/">{NAME}</a><span>{e(TAGLINE)}</span></div></header>
+<header class="site"><div class="wrap"><a class="name" href="{BASE}/">{NAME}</a>
+<nav><a href="{BASE}/articles/"{' class="on"' if nav == 'articles' else ''}>Articles</a><a href="{BASE}/feed.xml">RSS</a></nav></div></header>
 <main class="wrap">{body}</main>
 <footer class="site"><div class="wrap">{e(AUTHOR)} · <a href="{BASE}/feed.xml">RSS</a> · <a href="https://github.com/sinkers">GitHub</a></div></footer>
 </body></html>
 """
 
 
-def post_page(p: dict) -> str:
+def row(a: dict) -> str:
+    href = a["href"] if a.get("external") else f"{BASE}/{a['path']}"
+    ext = ' target="_blank" rel="noopener"' if a.get("external") else ""
+    where = f" · on {e(a.get('venue', 'another site'))} ↗" if a.get("external") else ""
+    bits = [a["date"].strftime("%-d %b %Y"), e(a.get("project", "")), minutes(a.get("words", 0))]
+    return f"""<a class="row" href="{e(href)}"{ext}>
+<img src="{e(a['hero_src'])}" alt="" loading="lazy" width="1200" height="630">
+<div><div class="t">{e(a['title'])}</div><div class="s">{e(a.get('summary', ''))}</div>
+<div class="m">{' · '.join(b for b in bits if b)}{where}</div></div></a>"""
+
+
+def more(p: dict, everything: list[dict]) -> str:
+    """Up to three other articles, same project first, then newest."""
+    others = [a for a in everything if a is not p]
+    others.sort(key=lambda a: (a.get("project") != p.get("project"), -a["date"].timestamp()))
+    rows = "".join(row(a) for a in others[:3])
+    return f"""<section class="more"><h2>More articles</h2>{rows}
+<a class="all" href="{BASE}/articles/">All articles →</a></section>"""
+
+
+def post_page(p: dict, everything: list[dict]) -> str:
     repos = " · ".join(f'<a href="https://github.com/{e(r)}">{e(r)}</a>' for r in p.get("repos") or [])
     body = f"""<article>
 <img class="hero" src="{e(p['hero_src'])}" alt="{e(p.get('hero_alt', ''))}" width="1200" height="630">
 <h1>{e(p['title'])}</h1>
 <div class="meta">{p['date'].strftime('%-d %B %Y')} · {e(p.get('project', ''))}{' · ' + repos if repos else ''}</div>
 {p['html']}
-</article>"""
+</article>
+{more(p, everything)}"""
     return page(p["title"], body, desc=p.get("summary", ""), url=p["url"], image=p["hero_url"], article=p)
 
 
@@ -213,12 +282,44 @@ Or use <a href="https://medium.com/p/import">Import a story</a> with
     return page(f"Medium copy: {p['title']}", body, desc=p.get("summary", ""), url=p["url"], noindex=True)
 
 
+def articles_page(everything: list[dict]) -> str:
+    by_year: dict[int, list[dict]] = {}
+    for a in everything:
+        by_year.setdefault(a["date"].year, []).append(a)
+    years = "".join(f"<h2>{y}</h2>" + "".join(row(a) for a in items) for y, items in by_year.items())
+    by_project: dict[str, list[dict]] = {}
+    for a in everything:
+        by_project.setdefault(a.get("project") or "other", []).append(a)
+    chips = "".join(f'<a class="pill" href="#{e(k)}">{e(k)} · {len(v)}</a>' for k, v in sorted(by_project.items()))
+    projects = "".join(f'<h2 id="{e(k)}">{e(k)}</h2>' + "".join(row(a) for a in v)
+                       for k, v in sorted(by_project.items()))
+    n = len(everything)
+    body = f"""<div class="idx"><h1>All articles</h1>
+<p class="tagline">{n} article{'' if n == 1 else 's'}, newest first. By project:</p>
+<div class="projects">{chips}</div>
+{years}
+<h2 style="margin-top:56px;color:var(--ink);font-size:20px;text-transform:none;letter-spacing:0">By project</h2>
+{projects}</div>"""
+    return page(f"All articles · {NAME}", body, desc=f"Every {NAME} article, by date and by project.",
+                url=f"{SITE}/articles/", image=everything[0]["hero_url"] if everything else "", nav="articles")
+
+
+def articles_json(everything: list[dict]) -> str:
+    return json.dumps([{
+        "title": a["title"], "date": a["date"].date().isoformat(), "project": a.get("project", ""),
+        "summary": a.get("summary", ""), "url": a["href"] if a.get("external") else a["url"],
+        "venue": a.get("venue", "devlog") if a.get("external") else "devlog",
+        "hero": a["hero_url"], "words": a.get("words", 0),
+    } for a in everything], indent=1)
+
+
 def index_page(posts: list[dict]) -> str:
     cards = "".join(f"""<a class="card" href="{BASE}/{p['path']}">
 <img class="hero" src="{e(p['hero_src'])}" alt="" loading="lazy" width="1200" height="630">
 <h2>{e(p['title'])}</h2><p>{e(p.get('summary', ''))}</p>
 <p>{p['date'].strftime('%-d %b %Y')} · {e(p.get('project', ''))}</p></a>""" for p in posts)
-    return page(NAME, f'<div class="list">{cards}</div>', desc=TAGLINE, url=f"{SITE}/",
+    return page(NAME, f'<p class="tagline">{e(TAGLINE)}</p><div class="list">{cards}</div>'
+                f'<a class="all" href="{BASE}/articles/">All articles →</a>', desc=TAGLINE, url=f"{SITE}/",
                 image=posts[0]["hero_url"] if posts else "")
 
 
@@ -233,7 +334,9 @@ def feed(posts: list[dict]) -> str:
 
 def main() -> int:
     posts = load_posts()
-    missing = [p["path"] for p in posts if not p.get("hero")]
+    elsewhere = load_elsewhere()
+    everything = sorted(posts + elsewhere, key=lambda a: a["date"], reverse=True)
+    missing = [a.get("path") or a.get("source") for a in everything if not a.get("hero")]
     if missing:
         print(f"posts without a hero: {missing}", file=sys.stderr)
         return 1
@@ -244,18 +347,21 @@ def main() -> int:
     for p in posts:
         d = OUT / p["path"]
         d.mkdir(parents=True)
-        (d / "index.html").write_text(post_page(p), encoding="utf-8")
+        (d / "index.html").write_text(post_page(p, everything), encoding="utf-8")
         if p["medium"]:
             (d / "medium").mkdir()
             (d / "medium" / "index.html").write_text(medium_page(p), encoding="utf-8")
     (OUT / "index.html").write_text(index_page(posts), encoding="utf-8")
+    (OUT / "articles").mkdir()
+    (OUT / "articles" / "index.html").write_text(articles_page(everything), encoding="utf-8")
+    (OUT / "articles.json").write_text(articles_json(everything), encoding="utf-8")
     (OUT / "feed.xml").write_text(feed(posts), encoding="utf-8")
     (OUT / "sitemap.xml").write_text(
         '<?xml version="1.0" encoding="utf-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
-        + f"<url><loc>{SITE}/</loc></url>" + "".join(f"<url><loc>{p['url']}</loc></url>" for p in posts)
+        + f"<url><loc>{SITE}/</loc></url><url><loc>{SITE}/articles/</loc></url>" + "".join(f"<url><loc>{p['url']}</loc></url>" for p in posts)
         + "</urlset>\n", encoding="utf-8")
     (OUT / ".nojekyll").write_text("")
-    print(f"built {len(posts)} post(s) into {OUT}")
+    print(f"built {len(posts)} post(s), {len(elsewhere)} elsewhere, into {OUT}")
     return 0
 
 

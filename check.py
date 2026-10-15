@@ -8,6 +8,9 @@
 - 600-1200 words, at least one code block
 - every github.com/<o>/<r>/blob link is pinned to a commit sha, never a branch
 - every link resolves, and every linked repo is public
+- elsewhere/*.md (articles published on other sites, listed in the index):
+  title, an ISO date, an https url, venue, project, summary and a hero that
+  exists
 - `medium` in channels: social/<post>/medium.md exists with a subtitle, one
   to five tags (Medium's limit), the post's canonical and a hero
 
@@ -121,9 +124,32 @@ def check(post: Path, online: bool) -> list[str]:
     return errs
 
 
+def check_elsewhere(f: Path, online: bool) -> list[str]:
+    fm, _ = frontmatter(f.read_text(encoding="utf-8"))
+    errs = [f"no {k}" for k in ("title", "date", "url", "venue", "project", "summary") if not fm.get(k)]
+    if fm.get("date") and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", fm["date"]):
+        errs.append("date must be YYYY-MM-DD")
+    if fm.get("url") and not fm["url"].startswith("https://"):
+        errs.append("url must be https")
+    hero = fm.get("hero", "")
+    if not hero:
+        errs.append("no hero: every entry in the index has one")
+    elif not (f.parent / hero).resolve().exists():
+        errs.append(f"hero {hero} does not exist")
+    if online and fm.get("url", "").startswith("https://") and not resolves(fm["url"]):
+        errs.append(f"does not resolve: {fm['url']}")
+    return errs
+
+
 def main() -> int:
     online = "--offline" not in sys.argv
     bad = 0
+    for f in sorted((ROOT / "elsewhere").glob("*.md")) if (ROOT / "elsewhere").exists() else []:
+        errs = check_elsewhere(f, online)
+        print(f"{'FAIL' if errs else 'ok  '} elsewhere/{f.name}")
+        for x in errs:
+            print(f"     - {x}")
+        bad += bool(errs)
     for post in sorted((ROOT / "posts").glob("*.md")):
         errs = check(post, online)
         print(f"{'FAIL' if errs else 'ok  '} {post.name}")
