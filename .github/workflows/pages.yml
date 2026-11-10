@@ -14,6 +14,11 @@ jobs:
       - run: pip install "markdown>=3.5,<4"
       - run: python check.py --offline
       - run: python build.py
+      # llms.txt, the IndexNow key and the home page's Blog JSON-LD; build.py's own
+      # sitemap, canonical tags and article JSON-LD are left as they are.
+      - uses: actions/checkout@v4
+        with: { repository: teamaicoder/sitekit, ref: v1, path: .sitekit }
+      - run: PYTHONPATH=.sitekit python -m sitekit build _site --config sitekit.toml
       - uses: actions/upload-pages-artifact@v3
         with: { path: _site }
   deploy:
@@ -23,3 +28,16 @@ jobs:
     steps:
       - id: d
         uses: actions/deploy-pages@v4
+  indexnow:
+    needs: deploy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 2 }
+      - uses: actions/checkout@v4
+        with: { repository: teamaicoder/sitekit, ref: v1, path: .sitekit }
+      - name: Tell Bing and friends which posts changed
+        run: |
+          urls=$(git diff --name-only HEAD~1 HEAD -- posts | sed -nE 's#^posts/([0-9]{4})-([0-9]{2})-([0-9]{2})-(.*)\.md$#https://sinkers.github.io/devlog/\1/\2/\3/\4/#p')
+          [ -z "$urls" ] && { echo "no post changes"; exit 0; }
+          PYTHONPATH=.sitekit python -m sitekit indexnow . --config sitekit.toml $urls

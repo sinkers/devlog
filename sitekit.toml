@@ -1,0 +1,13 @@
+# Settings for the built site: the pages workflow runs
+#   python -m sitekit build _site --config sitekit.toml
+# after build.py, so llms.txt, the IndexNow key and the home page's Blog JSON-LD
+# go out with every deploy. build.py's own sitemap and article tags are kept.
+[site]
+product     = "devlog"
+name        = "devlog"
+url         = "https://sinkers.github.io/devlog"
+description = "Notes from building things with AI coding agents, with links to the code. By Andrew Sinclair."
+type        = "Blog"
+author      = "Andrew Sinclair"
+image       = "images/2026-10-13-pipe-router/hero.png"
+ai_training = "allow"
