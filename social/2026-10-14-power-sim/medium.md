@@ -1,0 +1,158 @@
+---
+title: "Grid, BESS and UPS as drop-in components"
+subtitle: "Simulating a GPU load behind a UPS, with a battery beside it, on real Australian price days and through voltage sags"
+tags: [Data Center, Energy Storage, Electricity, Python, Open Source]
+canonical: https://sinkers.github.io/devlog/2026/10/14/power-sim/
+hero: ../../images/2026-10-14-power-sim/hero.png
+hero_alt: "Chart of a recorded NSW price day with a spike past $13,000/MWh, the BESS charging mid-morning and discharging through the spike, beside the single-line layout UTIL, MSB, BESS, UPS and GPU servers"
+---
+
+A rack of GPU servers draws about the same power all day. The price of that
+power doesn't stay the same. In the Australian National Electricity Market
+it is set every five minutes, and on 12 October 2026 the NSW price went
+from under $100/MWh in the morning to past $13,000/MWh in the afternoon.
+A battery on site can buy cheap and carry the load through the spike. The
+UPS that protects the servers has a battery too, and it has to cope with
+voltage sags, outages and a generator that may not like how hard it
+recharges.
+
+[SD-DC](https://sinkers.github.io/sd-dc/) is an open-source toolkit for
+designing data centres with AI agents doing the legwork. Its newest part is
+a power simulator for a site's point of connection: what a battery earns on
+a real price day, what a 150 ms sag does to the UPS, and whether a standby
+generator survives the UPS recharging after an outage. It is one commit,
+[`c367ee7`](https://github.com/sinkers/sd-dc/commit/c367ee7ac319de892a91fe2e51f26c0998a14a8f),
+on the `power-sim` branch, not yet merged. Standard-library Python only,
+146 tests.
+
+## A simulation is a model, not code
+
+Each component lives in `power-sim/model/dtpower/components/` and knows
+nothing about any simulation. It declares an IndustroML asset kind, its
+ports, a parameter schema (label, unit, range, default) and a role:
+`source`, `bus`, `conversion`, `storage`, `load`, `controller` or
+`generator`. The registry maps kind to class, so a new component is usable
+by every simulation once it is listed
+([components/\_\_init\_\_.py L31](https://github.com/sinkers/sd-dc/blob/c367ee7ac319de892a91fe2e51f26c0998a14a8f/power-sim/model/dtpower/components/__init__.py#L31)).
+
+A simulation is then just a list of assets and the cables between them.
+This is the whole of simulation 01's wiring:
+
+```python
+LINKS = [
+    ("C-01", "cable", "UTIL.OUT", "MSB.IN"),
+    ("C-02", "cable", "MSB.OUT", "BESS-1.AC"),
+    ("C-03", "cable", "MSB.OUT", "UPS-1.IN"),
+    ("C-04", "cable", "UPS-1.OUT", "GPU-1.IN"),
+    ("D-01", "data_link", "DR-1.NET", "BESS-1.CTRL"),
+    ("C-05", "cable", "GEN-1.OUT", "MSB.ALT"),
+]
+```
+([sims/bess_dr.py L46–53](https://github.com/sinkers/sd-dc/blob/c367ee7ac319de892a91fe2e51f26c0998a14a8f/power-sim/model/dtpower/sims/bess_dr.py#L46-L53))
+
+[`network.py`](https://github.com/sinkers/sd-dc/blob/c367ee7ac319de892a91fe2e51f26c0998a14a8f/power-sim/model/dtpower/network.py#L135-L182)
+turns that into a tree and steps it. Loads report demand, the UPS turns
+output demand into input demand (load, losses, recharge), and at each bus
+the passive feeders are summed before the BESS controller decides, so the
+controller knows what the site draws. Storage dispatches before the
+generator, because stored energy costs wear and a running set costs fuel.
+The grid takes whatever is left. A double feed, an unknown kind or an
+asset with no supply is rejected with a reason. The viewer builds its
+sliders from the same schemas, so adding a parameter to a component adds a
+control.
+
+The default site is 16 DGX H100s at 80 % utilisation (about 139 kW)
+behind a 250 kW UPS with 45 kWh of battery, a 200 kW / 400 kWh BESS on
+the same switchboard, and a 400 kW grid connection.
+
+## What a run shows
+
+```bash
+python3 -m dtpower scenarios bess-dr
+python3 -m dtpower run bess-dr --scenario nsw-spike --set BESS-1.capacity_kwh=800
+```
+
+There are 19 scenarios. I ran all the ones quoted here at the commit.
+On AEMO prices for NSW1 on 12 October 2026, the price sat between about
+$30 and $230 until 14:00 and then passed $13,000/MWh. The BESS charges
+185 kWh mid-morning at a mean $67/MWh and discharges 292 kWh at a mean
+$6,169/MWh, carrying the whole load while the spike lasts. The day's bill
+falls from $2,382 to $634. The saving comes out at $1,724.
+
+![Three stacked charts for 12 Oct 2026: the NSW1 price on a log scale with a spike past $13,000 at 14:30, grid import and BESS power with the BESS charging at 200 kW near 09:00 and discharging about 144 kW from 14:00 to 16:00, and BESS state of charge rising from 50 to 95 % then falling to 20 %](../../images/2026-10-14-power-sim/spike-day.png)
+
+*`nsw-spike` at default settings, plotted from `dtpower run --rows`.*
+
+That saving isn't the bill difference. The day runs three times (no BESS,
+BESS only, everything) and the saving is the baseline bill minus the bill,
+minus battery wear, plus the change in stored energy valued at the day's
+median price
+([`_saving`](https://github.com/sinkers/sd-dc/blob/c367ee7ac319de892a91fe2e51f26c0998a14a8f/power-sim/model/dtpower/sims/bess_dr.py#L293-L294)).
+Here the battery ends at 20 % having started at 50 %, which costs $17.
+Without that term a strategy can look good just by finishing emptier
+than it began.
+
+The other cases put that number in context. A flat $100/MWh day loses $8:
+auxiliaries and losses with nothing to arbitrage. That's the control
+case. Capping the GPUs to 70 % above $300/MWh adds $39 and costs 3.1
+server-hours of compute. Doubling the BESS to 800 kWh only lifts the spike
+day to $1,772. On a South Australian day of negative prices the BESS is
+paid to charge, at −$84/MWh on average, and the saving is $15. A generator
+started above $500/MWh, with no BESS, saves $1,567 after $172 of fuel.
+
+## Sags at two-second steps
+
+Seven scenarios run 45 minutes at two-second steps around an event at
+14:00. A sag is an event with a depth and a duration, so a 150 ms dip
+inside a two-second step still counts as 150 ms.
+
+![Two charts after a 150 ms sag: grid import drops to near zero for three minutes then jumps to 197 kW with the UPS alone, or holds at 160 kW with the BESS shaving; UPS battery charge falls to 83 % and recovers by 13 minutes](../../images/2026-10-14-power-sim/sag.png)
+
+*`sag-no-ride-through` and `sag-bess-shave`. The dotted line is the 160 kW limit.*
+
+A sag to 70 % for 150 ms, with UPS ride-through off, puts the UPS on
+battery for 190 s through a three-minute resync, down to 83 %. Then the
+recharge lifts the UPS input to 194 kW, a new site peak. With ride-through
+on, the sag is inside the envelope and nothing happens. With the BESS
+peak-shaving, the UPS recharges at full rate and the grid never sees more
+than 160 kW. Four sags in seven minutes keep restarting the resync: 580 s
+on battery, down to 47 %.
+
+A 25-minute outage with no generator outlasts the UPS. It rides for 17
+minutes, then 20.8 kWh goes unserved. With the generator, the UPS
+recharge can trip it: a 35 % recharge on a 200 kW set trips it, unless
+the UPS max demand holds the recharge back.
+
+## What it doesn't model yet
+
+- **Nothing is verified.** The UPS loss curve, GPU idle power, the
+  throughput-under-cap curve, $25/MWh battery wear, diesel burn and the
+  AS/NZS 4777.2 reconnect defaults are all marked `verified: false` with
+  their source. Vera Rubin NVL72 power is a supply-chain estimate.
+- **Energy only.** No demand charges, no reactive power, no cable losses.
+  Everything is kW at unity power factor.
+- **Radial networks only.** One source, no dual-path feeds.
+- **The BESS has no IndustroML kind.** IndustroML has no `bess`,
+  `battery` or `inverter`, so the BESS is flagged as a proposed kind and
+  these models don't validate against the schema yet.
+- **Recorded prices may sit one interval early.** Whether AEMO labels an
+  interval by its start or its end isn't confirmed.
+- **The "optimal" controller is near-optimal.** It plans on a grid of SoC
+  levels and can trail well-tuned thresholds by a few percent.
+- **One number is stale.** The README at this commit gives 18.5 kWh
+  unserved for the outage case. A run at the same commit gives 20.8.
+
+## Next
+
+Simulation 02 swaps the BESS for a UPS whose rectifier is a bidirectional
+converter, so one bigger battery does ride-through and arbitrage. The
+question is whether that beats a separate BESS, and how much it must hold
+back for an outage. `Battery` and `Converter` are already shared parts, so
+the change is in the wiring, not the components. After that comes a
+drag-and-drop editor and telemetry: `Network` already accepts measured
+values per asset in place of modelled ones, but only the GPU load uses it.
+The code is MIT on [GitHub](https://github.com/sinkers/sd-dc).
+
+---
+
+*Originally published on [devlog](https://sinkers.github.io/devlog/2026/10/14/power-sim/). The code is on [GitHub](https://github.com/sinkers/sd-dc).*
