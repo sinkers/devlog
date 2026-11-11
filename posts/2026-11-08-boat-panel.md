@@ -1,137 +1,129 @@
 ---
-title: "Measure twice, cut the harness once"
+title: "Mapping a 12-way boat harness before cutting it"
 project: beneteau-f45-display
 repos: [sinkers/beneteau-f45-display]
 canonical: https://sinkers.github.io/devlog/2026/11/08/boat-panel/
 hero: ../images/2026-11-08-boat-panel/hero.png
 hero_alt: "A white 12-way harness plug held in front of a tangle of boat wiring, beside a hand-filled multimeter worksheet listing twelve pins"
 channels: [devlog, medium]
-summary: "Three weeks of replacing the dead instrument panel on a Beneteau First 45. The first set of readings was misleading, the factory manual explained why, and the design changed shape before a single wire was cut. Nothing is built yet."
+summary: "The dead Siemens VDO batteries-and-tanks panel on a Beneteau First 45 is being replaced by an ESP32-S3 and a 3.5-inch TFT. Three weeks of pin mapping moved all sensing to a Victron Cerbo GX and cut the panel board from 143 footprints to 82. Nothing is built yet."
 ---
 
-# Measure twice, cut the harness once
+# Mapping a 12-way boat harness before cutting it
 
-The batteries-and-tanks panel at the nav station of my Beneteau First 45 is
-dead. It's a Siemens VDO "Batteries & Levels" LCD on a 90 × 120 mm board,
-held in a fixed frame by four corner screws, fed by two plugs: a 3-way for
-power and a 12-way for everything it measured. The plan is to put an
-ESP32-S3 and a 3.5" colour screen in the same frame.
+The Siemens VDO "Batteries & Levels" panel at the nav station of a
+Beneteau First 45 is dead. I'm replacing it with an ESP32-S3 and a 3.5"
+480 × 320 ILI9488 TFT in the same 90 × 120 mm frame. Three weeks and 32
+commits in, the main result is a confirmed map of the panel's 12-way
+harness, and a redesign that follows from it: the panel no longer
+measures anything. All sensing moves to a Victron Cerbo GX, and the
+panel board went from 143 footprints to 82. Nothing has been built,
+printed or cut yet.
 
-Three weeks in, nothing is built. What I have is a harness I now
-understand and a design that changed shape because of it. This post is about that order of work: verify every pin
-before anything gets cut.
+## The harness
 
-## The first readings were wrong in an instructive way
+The old panel takes a 3-way plug (supply, ground, backlight) and a
+12-way TE Universal MATE-N-LOK. The map below was measured on 25 October,
+system powered, positions top-left to right looking into the harness
+plug.
 
-On the first visit I took a printed worksheet to the boat and measured all
-twelve pins of the big plug with the panel unplugged: resistance to battery
-negative, then volts. The sheet is the right half of the image above.
+| Pos | Wire | 25 Oct reading | Rev C: TB1 position n, then |
+|---|---|---|---|
+| 1 | Stern water signal | 2.3 V (¼ band) | W1 to GX Tank 140 CH1 |
+| 2 | Fwd water signal | 1.2 V (empty band) | W2 to GX Tank 140 CH2 |
+| 3, 4, 9 | Negative | | linked; W3, W4, W7 |
+| 5 | Fuel sender, 10–180 Ω | 85 Ω, about 45 % | W5 to Cerbo Tank 1 |
+| 6, 11 | Empty cavity | | unused |
+| 7 | +12 V to both water transmitters | | W6 from BMS AUX+ via 1 A fuse |
+| 8, 10, 12 | Red, old battery and shunt senses | 0 V (26 Oct) | insulated, labelled DEAD |
 
-The readings looked sensible. Two pins read 36 Ω each and one read 28 Ω,
-which is what resistive tank senders look like, so I concluded that all
-three tanks used the same Euro 10–180 Ω senders and the firmware defaults
-could stand.
+Each water tank has a Scheiber 50.BTE05000E.00 transmitter turning a
+five-rod probe into 0–6 V, powered from pin 7. The drop-in replacement's
+datasheet (50.BTE110009.00) gives the calibration steps: empty 1.0–1.2 V,
+¼ 2.1–2.3, ½ 3.2–3.4, ¾ 4.35–4.55, full 5.5–5.7 V. Both readings sit in
+a band, so both boxes work.
 
-That same day I found the factory manual. The water channels aren't
-resistive at all. Each water tank has a transmitter box that turns a
-five-rod probe into a 0–6 V signal, and the panel itself powers those boxes
-through one of the 12 pins. With the panel unplugged, the boxes were
-unpowered, so the 36 Ω I had measured was the resistance of a dead output.
-Only the fuel reading meant anything.
+![Two photos of the water-level transmitter: its label reading Scheiber Réf 50.BTE05000E.00, and the opened case showing resin potting and four spade tabs](../images/2026-11-08-boat-panel/scheiber.jpg)
 
-The manual corrected two other things. The current shunt is 100 A / 50 mV
-(0.5 mΩ) on the high side, not the 500 A part I had assumed. And the
-manual numbers the pins differently from my worksheet, which counted
-positions looking into the plug. Every pin map in the repo now says which
-numbering it uses.
+*One water transmitter as removed: the label, and the case opened to
+show the resin potting. The factory manual lists a VDO part here.*
 
-## The transmitter wasn't the one in the manual
+## What I got wrong first
 
-The manual lists a VDO transmitter. Pulling one out showed a Scheiber
-50.BTE05000E.00 instead, fully resin-potted with corroded FASTON tabs. The
-current drop-in is the 50.BTE110009.00. Its datasheet gives the output
-steps, which became the calibration table: empty 1.0–1.2 V, ¼ 2.1–2.3 V,
-½ 3.2–3.4 V, ¾ 4.35–4.55 V, full 5.5–5.7 V.
+The first visit, recorded 18 October, used a printed worksheet with the
+panel unplugged (hero image, right; volts and ohms are in each other's
+columns). Pins 3 and 4 read 36 Ω and pin 5 read 28 Ω, and I concluded all
+three tanks had Euro 10–180 Ω senders.
 
-![Five photos of the Scheiber water-level transmitter: the label reading 50.BTE05000E.00, the resin-potted inside, and its wiring under a berth](../images/2026-11-08-boat-panel/scheiber.jpg)
+The factory manual, found the same day, showed the water inputs are
+0–6 V transmitter outputs fed 12 V by the panel. It also gave the shunt
+as 100 A / 50 mV, where rev B assumed 500 A, and numbers the pins
+differently from my worksheet.
 
-*The water-level transmitter as found: label, opened case, and a manufacturing label on its loom.*
+The two visits still don't agree pin for pin. The first sheet has 0 Ω on
+pins 1 and 2, 36 Ω on the two black wires at 3 and 4, and 12.8 V on pin
+12. The powered map has water signals on 1 and 2, negatives on 3 and 4,
+and 0 V on every red. The repo's factory-pinout note explains the 36 Ω
+as unpowered transmitter outputs, which only holds if the two numberings
+differ. I haven't photographed the moulded cavity numbers that would
+settle it. Rev C doesn't depend on it, because every wire is labelled
+and checked in place before the cut.
 
-## Measuring again, powered
+Fuel disagreed too, 28 Ω at the sender against 85 Ω at the plug: a
+fault inside the sender, since fixed.
 
-On the second visit, with the system powered and the old panel's supply
-pin feeding the boxes, the confirmed map came out like this
-(positions looking into the harness plug, top left to right):
+The three reds read 0 V against good negatives, the 1 A fuse is fine,
+and they don't run straight to the batteries. I think they're taps
+orphaned by earlier work, which would explain the old panel's dead
+battery readings. I'm not tracing them: they're abandoned in place,
+labelled, and treated as live when cut.
 
+## Rev C: the panel becomes a display client
+
+The boat is getting a Cerbo GX, Lynx Smart BMS, Orion XS and BMV-712
+anyway. Once the harness was mapped, there was no reason for the panel
+to measure anything the Cerbo can.
+
+![Block diagrams of rev B, where the panel measures harness signals itself, and rev C, where the harness goes via terminal strip TB1 to a GX Tank 140 and Cerbo GX, which put everything on NMEA 2000 for the panel](../images/2026-11-08-boat-panel/architecture.png)
+
+*Rev B from Fig. 1 of the repo's rev B design package and the firmware's
+`sendN2k()`. Rev C from wiring Sheets 2 and 4 Rev 0.2 and the install
+guide (commit 9293735). Footprint counts are the KiCad boards at 7950bab
+and e43d660. Drawn with matplotlib.*
+
+Water goes through a GX Tank 140 because the Cerbo's tank inputs are
+resistive only. The transmitters are fed from BMS AUX through a 1 A fuse,
+not the Tank 140's sender-power terminals, which put out 24 V against
+their 9–15 V rating.
+
+Rev B measured locally and transmitted. Its firmware sends this every
+2.5 s; rev C has to receive the same PGNs instead:
+
+```cpp
+void sendN2k() {
+    tN2kMsg msg;
+    SetN2kDCBatStatus(msg, 0, S.bank_v[0], S.bank_a[0], N2kDoubleNA, 1);
+    NMEA2000.SendMsg(msg);
+    ...
+    SetN2kFluidLevel(msg, 2, N2kft_Fuel, S.tank_pct[2], TANKS[2].capacity_l);
+    NMEA2000.SendMsg(msg);
 ```
-Pos  Found                       Reading
-1    Stern water signal          2.3 V   -> 1/4 tank (band 2.1-2.3 V)
-2    Fwd water signal            1.2 V   -> empty    (band 1.0-1.2 V)
-3,4  Negative
-5    Fuel sender (10-180 ohm)    85 ohm  -> about 45 %
-6    Empty cavity
-7    +12 V feed to both Scheiber boxes
-8    Red, unknown
-9    Negative
-10   Red, old shunt sense
-11   Empty cavity
-12   Red, unknown
-```
 
-Both water readings sit right on the Scheiber steps, so both boxes are
-alive. That cancelled a bench test and any replacement boxes. The fuel
-reading didn't agree with the earlier 28 Ω at the sender, and that turned
-out to be a real fault in the tank sender, since fixed. It now reads
-fine.
+The panel gains a BME280 (temperature, humidity, pressure), which it
+broadcasts.
 
-The next day I measured the three reds to ground: 0 V on all of them,
-against the same negatives the water pins read correctly from. The 1 A
-fuse on the distribution card is fine, and the reds don't run straight to
-the batteries. They're most likely orphaned taps left over from earlier
-work, which would also explain why the old panel's battery readings died.
-I decided not to trace them. They get abandoned in place, taped and
-labelled, and treated as live when cut, because one could be on an
-ignition-switched circuit.
+## Chassis and screen size
 
-## Rev C: the panel stops measuring things
+The rev C board is placed, not routed, and optional. The first build is a
+printed plate on the frame's corner screws holding off-the-shelf modules. It is modelled in OpenSCAD and not yet
+printed.
 
-Once I knew what each pin carried, the obvious question was why the
-panel should measure any of it. The boat is getting a Victron system
-anyway: a Cerbo GX, a Lynx Smart BMS for the lithium house bank, and an
-Orion XS for the start battery. All of that talks NMEA 2000.
+![Rendered 3D model of the printed front plate: a window for the screen, four mounting bosses, three round button holes and vent slots](../images/2026-11-08-boat-panel/chassis-plate.png)
 
-So in rev C the panel is a display client. The harness never reaches it.
-The 12-way plug is cut, landed one-to-one on a terminal strip, and from
-there the fuel sender goes to a Cerbo tank input and the two water signals
-go to a Victron GX Tank 140, because the Cerbo's own tank inputs are
-resistive only and can't read a 0–6 V box. The boxes stay on the boat's
-12 V supply. The Tank 140 has sender-power terminals, but they put out
-24 V, and the Scheiber boxes are rated 9–15 V.
+*The front plate, rendered from the STL generated in commit f36bf26.*
 
-The panel keeps the screen, three buttons, a buzzer, a CAN transceiver,
-Wi-Fi, and its own supply and backlight sensing. It gains one sensor, a
-BME280, for cabin temperature, humidity and a barometer it broadcasts back
-onto the bus. The rev C board went from 143 footprints to 82.
-
-The install guide for the cut is deliberately boring: label each wire,
-photograph the plug, then cut one wire at a time.
-
-## A printed chassis first
-
-The custom board is placed but not routed, and it may never need to be.
-The first build is a 3D-printed plate that drops into the frame on the
-original corner screws, holding off-the-shelf modules. It's drawn in
-OpenSCAD, along with a separate fit-check model for the display stack and
-the space behind the frame. Neither has been printed or trial-fitted yet.
-
-![Rendered 3D model of the printed front plate: a window for the screen, four mounting bosses, three button holes and vent slots](../images/2026-11-08-boat-panel/chassis-plate.png)
-
-*The front plate, rendered from the repo's STL.*
-
-## What is still waiting
-
-The screens arrived on 8 November and are "quite large". The design
-assumed an 86 mm wide module:
+The two screens arrived on 8 November and are larger than the model
+assumed:
 
 ```
 // ---- TFT module (KMRTM35018 / MSP3520 class) -- tune after measuring -
@@ -139,26 +131,31 @@ mod_x0 = 2.5;  mod_y0 = 11.5;          // module outline origin (board y, down)
 mod_w  = 86;   mod_h  = 56;
 ```
 
-The common 3.5" ILI9488 module of that class is 98 × 56.34 mm, wider than
-the 90 mm board it replaces. I don't yet know if the frame's cavity has
-room for the overhang, so the next step is calipers on the real module and
-the frame, then either re-lay the plate or find a narrower panel. The
-firmware doesn't care either way: same controller, same 480 × 320.
+The common MSP3520-class module is 98 × 56.34 mm, wider than the 90 mm
+board it replaces.
 
-![Outline of the 90 by 120 mm board with the assumed 86 mm module inside it and a dashed 98 mm module overhanging both sides](../images/2026-11-08-boat-panel/tft-size.png)
+![Plot in millimetres of the 90 by 120 mm board with corner screw holes, the 86 by 56 mm module the chassis assumes at x 2.5, y 11.5, and a dashed 98 by 56.34 mm outline overhanging both sides](../images/2026-11-08-boat-panel/tft-size.png)
 
-*The size problem. The 98 mm outline is centred for comparison; its real position depends on measurements I don't have yet.*
+*Board outline and screw holes from the chassis model's parameters; the
+98 mm outline is the class figure, not a measurement of the arrived unit,
+drawn centred because its real position is unknown.*
 
-The two BME280 breakouts were lost in customs. A replacement is on its
-way, and it defaults to I²C address 0x77 where the firmware assumed 0x76.
-The buttons coming are square PCB tactiles, so the plate's round holes
-need reworking.
+## Not done
 
-The firmware is still the rev B code, which reads sensors and transmits
-battery and tank data. The next big job is turning it round: receive
-battery, tank and temperature messages from the Cerbo, mark anything older
-than about 10 seconds as stale and show "--" instead of an old number, and
-broadcast the BME280.
+- Nothing is built or printed.
+- The arrived module and the frame cavity haven't been measured. Either
+  the plate is re-laid or the screen changes; the firmware is unaffected.
+- The plate's Ø12.4 mm holes suit panel-mount buttons; the ones coming
+  are 12 mm square PCB tactiles.
+- The firmware is still rev B. Receiving PGNs 127508, 127506, 127505 and
+  130312/130316, marking data stale after about 10 s and showing "--",
+  and broadcasting the BME280 are all unwritten.
+- The harness isn't cut and the Cerbo isn't installed.
+
+The obvious objection: the chartplotters will show all of this. They
+will. The panel fills the nav-station frame the old one sat in, and adds
+the barometer.
 
 The repo is [on GitHub](https://github.com/sinkers/beneteau-f45-display)
-under the Apache 2.0 licence. So far only the licence has been pushed.
+under Apache 2.0. Only the licence commit is pushed; the other 31 commits
+are local.
