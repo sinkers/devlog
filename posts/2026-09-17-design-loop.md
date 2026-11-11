@@ -1,156 +1,156 @@
 ---
-title: "Solve for the flow, don't prescribe it"
+title: "Solving for flow in a liquid-cooling loop"
 project: sd-dc
 repos: [sinkers/sd-dc]
 canonical: https://sinkers.github.io/devlog/2026/09/17/design-loop/
 hero: ../images/2026-09-17-design-loop/hero.png
 hero_alt: "A 3D model of a liquid-cooling plant with four chillers, nine CDUs and three pods of racks, beside a chart of chiller plant power against ambient that stays flat at about 220 kW until 21.3 °C and then climbs"
 channels: [devlog, medium]
-summary: "SD-DC started as a toolkit for designing data centres with agents, built around a design loop. Its first new piece was a liquid-cooling model that solves for flow instead of prescribing it. Schneider's RD110 set the temperatures, and showing the flows caught three of my mistakes."
+summary: "The first ten days of SD-DC: a hydraulic model of Schneider's RD110 liquid-cooling plant that solves for every flow, 137 tests, and a viewer that showed three of my mistakes once the flows were on screen."
 ---
 
-# Solve for the flow, don't prescribe it
+# Solving for flow in a liquid-cooling loop
 
-SD-DC had its first commit on 8 September: a toolkit for data centre design led by
-AI agents. The bet is in the README's first diagram: a brief goes in, an
-agent calls tools for sizing, routing, costing, CFD and CAD, a model of the
-building comes out, and every answer is checked by running it. If a check
-fails, the agent goes round again. That's the design loop.
+In its first ten days SD-DC got a hydraulic model of the liquid-cooling
+plant in Schneider's RD110 reference design: 4 chillers, 4 pumps, 9 CDUs,
+48 racks and 159 pipe runs over 641 m, with every flow solved rather than
+typed in. Shut one rack valve in the test network and total flow falls
+23.7 %, not 25 %. Putting the solved flows on screen found three mistakes
+of mine. 137 tests pass at
+[`e30c132`](https://github.com/sinkers/sd-dc/tree/e30c13299f903d0d249215cafc3a64ad401e8911/liquid-twin).
 
-Most of that loop isn't built. Cable sizing to AS/NZS 3008 is mature. The
-other tools exist as code but aren't services an agent can call yet, and
-costing and layout aren't written. This post covers the first ten days:
-a liquid-cooling model, a viewer for it, and some plumbing that makes the
-loop more than a sketch.
+SD-DC is meant to become a design loop: an agent calls sizing, routing,
+costing, CFD and CAD tools, and every answer is checked by running it.
+Most of that isn't built yet.
 
-## Flow is an output
+## How it works
 
-The air-side CFD in the repo puts a fixed mass flow on its fan walls.
-That's right for a steady design-point study. It's no use for asking what
-happens when a valve shuts, because a prescribed flow can't redistribute.
+The air-side CFD in the repo fixes the fan-wall mass flow, which can't
+redistribute when a valve shuts. [`hydraulics.py`](https://github.com/sinkers/sd-dc/blob/e30c13299f903d0d249215cafc3a64ad401e8911/liquid-twin/loop/dtloop/hydraulics.py)
+treats flow as an output instead:
 
-So the liquid model
-([`hydraulics.py`](https://github.com/sinkers/sd-dc/blob/e30c13299f903d0d249215cafc3a64ad401e8911/liquid-twin/loop/dtloop/hydraulics.py))
-solves for every flow. Pipes are Darcy–Weisbach, valves get their resistance
-from a characteristic at a given lift, pumps have a head curve, and every
-node balances. Newton solves branch flows and node pressures together.
+- pipes are Darcy–Weisbach with fitting K values;
+- valves take their resistance from a characteristic at a given lift;
+- pumps have a head curve;
+- Newton solves branch flows and node pressures together, with mass
+  balanced at every node.
 
-The test that proves it shuts one of four identical rack branches and tells
-nothing else to change:
+The test that carries the idea shuts one of four identical rack branches
+and changes nothing else:
 
 ```python
 net.branch("rack1").valves()[0].position = 0.0
 shut = solve(net, base.as_array(net))
 assert shut.converged
-
-# The survivors gain - the whole point. Nothing told them to.
 assert shut.flow("rack2") > base_each
-
-# Total falls, but by less than the quarter that was removed, because the
-# pump rides up its curve as the system resistance rises.
 lost = 1.0 - shut.flow("pump") / base.flow("pump")
 assert 0.0 < lost < 0.25
 ```
 ([test_hydraulics.py L129–151](https://github.com/sinkers/sd-dc/blob/e30c13299f903d0d249215cafc3a64ad401e8911/liquid-twin/loop/tests/test_hydraulics.py#L129-L151))
 
-Total flow falls 23.7 %, not 25 %, and each of the other three racks gains
-1.6 %. Nobody wrote that behaviour in. It comes from solving the network.
+![Bar chart of mass flow in kg/s for four rack branches and the pump, before and after rack1's valve is shut. Each rack carries 5.69 kg/s open; with rack1 shut it carries 0.01 and the other three 5.79; pump total falls from 22.78 to 17.37 kg/s](../images/2026-09-17-design-loop/redistribution.png)
 
-Three things only showed up when tests failed. A shut valve has to be a large
-finite resistance, because infinite makes the Jacobian singular. A quadratic
-pump curve through three ordinary datasheet points peaks half a metre above
-shutoff, and that half-metre put the solver into a two-point limit cycle, so
-the curve is now clipped monotonic. And a step clamp caused the cycle, so the
-step is now globalised by backtracking.
+*Flows in the four-branch test fixture (`parallel_racks`, 30 °C water), solved with `dtloop.hydraulics.solve` at e30c132. The pump rides up its curve as resistance rises, so each survivor gains 1.6 %.*
 
-## Numbers nobody chose
+Three things in the solver were forced by failing tests. A shut valve is
+a large finite resistance, because infinite makes the Jacobian singular. A
+quadratic pump curve through three datasheet points peaked 0.5 m above
+shutoff and put the solve into a two-point limit cycle, so the curve is
+clipped monotonic. The step clamp was what produced the cycle, so the step
+is now globalised by backtracking.
 
-Every parameter sits in `loop_params.json` with its source and a confidence
-grade. [`params.py`](https://github.com/sinkers/sd-dc/blob/e30c13299f903d0d249215cafc3a64ad401e8911/liquid-twin/loop/dtloop/params.py)
-raises `PendingReference` rather than fill in a default. A default would
-be a number nobody chose, and downstream you can't tell it from one somebody
-did. At the start 24 values were null, including every temperature.
+## Parameters nobody chose
 
-## RD110, and its chillers
+Every parameter is in `loop_params.json` with a source and a confidence
+grade.
+[`params.py`](https://github.com/sinkers/sd-dc/blob/e30c13299f903d0d249215cafc3a64ad401e8911/liquid-twin/loop/dtloop/params.py)
+raises `PendingReference` for a null value instead of returning a default,
+because a default can't be told apart from a value someone chose. At the
+first commit 24 were null, including every temperature. RD110 rev 3
+closed six: facility water 37/47 °C, cold plates 40/50 °C. 13 are still
+null at e30c132.
 
-Schneider's RD110 rev 3, a 10 MW reference design for GB300 racks, settled
-the temperatures: facility water 37/47 °C, cold plates 40/50 °C. Six nulls
-closed and the tests written to fail on its arrival did fail.
+## The chillers are also dry coolers
 
-The surprise was that RD110 doesn't use dry coolers, which is what I was
-modelling for. It uses four Uniflair XRAF4242A free-cooling chillers, N+1.
-I first wrote that up as an argument against dry coolers. A commit later I
-had it the wrong way round. Below some ambient those chillers *are* dry
-coolers, fans only. Above it the compressors make up what the coil can't
-take. [`chiller.py`](https://github.com/sinkers/sd-dc/blob/e30c13299f903d0d249215cafc3a64ad401e8911/liquid-twin/loop/dtloop/chiller.py#L121-L127)
-works out the crossover rather than assuming it:
+I was modelling dry coolers. RD110 specifies four Uniflair XRAF4242A
+free-cooling chillers, N+1, and I first wrote that up as an argument
+against dry coolers. That was the wrong way round. Below a crossover
+ambient these chillers run fans only; above it the compressors make up
+what the coil can't reject.
+[`chiller.py`](https://github.com/sinkers/sd-dc/blob/e30c13299f903d0d249215cafc3a64ad401e8911/liquid-twin/loop/dtloop/chiller.py#L121-L127)
+calculates the crossover:
 
 ```python
 def crossover_ambient_c(self, load_kw: float, return_water_c: float) -> float:
     return return_water_c - load_kw / self.ua_free_kw_per_k
 ```
 
-At RD110's liquid load of 5,930 kW that's 21.3 °C. A fully loaded plant
-loses free cooling at a lower ambient than a half-loaded one. Plant power
-goes from 218 kW at 10 °C to 1,375 kW at 42 °C, a factor of 6.3. The coil
-size, fan power and COP curve behind those numbers are my judgement, not
-RD110's, and the code says so.
+![Two-panel chart of chiller plant power in kW against ambient in °C. Both curves are flat at 218 kW then rise to about 1,650 kW at 45 °C. The zoom shows the 6,014 kW curve leaving 218 kW at 20.9 °C and the 5,930 kW curve at 21.3 °C](../images/2026-09-17-design-loop/plant-power.png)
 
-## What showing the flow caught
+*`ChillerPlant.power_kw` from `rd110_plant()` at e30c132, three units running, 47 °C return water. Blue is the liquid load alone; orange adds the 84.5 kW of pump work from the design scenario of `plant.run_scenarios()`.*
 
-The plant is laid out in one file, `layout.py`, with no FreeCAD or numpy
-in it. The FreeCAD STEP export, the browser viewer and the solver all read
-it, so the pipes you see are the pipes the solver puts flow through:
-4 chillers, 9 CDUs, 48 racks, 148 runs over 598 m.
+With 48 racks × 142 kW × 87 % = 5,930 kW to liquid, the crossover is
+21.3 °C. The viewer adds the pump work that ends up in the water, 84.5 kW
+in the design case, rejects 6,014 kW, and puts the crossover at 20.9 °C.
+`prepare_geometry.py` still writes 21.28 into the manifest from the liquid
+load alone, so the repo carries both numbers; 20.9 °C is the more complete
+one. Plant power goes from 218 kW at 10 °C to 1,375 kW at 42 °C on the
+liquid load (1,395 kW with pump work). More load means free cooling
+runs out at a lower ambient.
 
-![The loop viewer with pipes coloured by velocity against a 3 m/s ceiling, beside panels of loop temperatures, circuit flows, CDU flow meters and chiller power](../images/2026-09-17-design-loop/loop-velocity.png)
+## The viewer, and what it caught
 
-*The loop viewer, pipes coloured by velocity. Every number in the side panels comes from the solved network.*
+The plant is laid out once, in `layout.py`, which imports neither FreeCAD
+nor numpy. The STEP export, the browser viewer and the solver all read it,
+so the pipes drawn are the pipes the solver puts flow through. The viewer
+is static: HTML, one JS module, a 0.6 MB geometry bundle and a manifest of
+solved scenarios.
 
-Once flows were on screen, three of my mistakes showed:
+![The loop viewer with pipes coloured by velocity against a 3 m/s ceiling, beside panels of loop temperatures, circuit flows, CDU flow meters and a free-cooling panel reading compressors engage above 20.9 °C](../images/2026-09-17-design-loop/loop-velocity.png)
 
-1. **8.5 m/s in the facility mains.** RD110's only pipe size callout is
-   DN150 and I'd used it for the mains as well as the branches. Sizing on
-   velocity gives DN300, and the facility pump went from 42.9 m and 30 kW
-   to 23.0 m and 16.8 kW, a 44 % cut.
-2. **A tripped CDU ran backwards.** With its pump off and no non-return
-   valve, the solver drove −62 m³/h through the dead plate. Correct for the
-   network as drawn, nonsense as a plant. `CheckValve` exists because of it.
-3. **Losing a pump appeared to increase flow.** I'd reported circuit flow
-   as one pump's flow times the count. With one pump off the survivors ride
-   up their curves, and it read 193 kg/s against a 152 kg/s design.
+*The viewer at e30c132, design scenario, ambient 25 °C: pipes coloured by velocity, facility peak 2.84 m/s. Its free-cooling panel reads 20.9 °C because it includes 84.5 kW of pump work; the 21.3 °C in the text and hero is the liquid load alone.*
 
-In the next commit I fixed my own heat exchanger maths too. I'd calibrated the CDU
-plate on the 3 K terminal approach, where effectiveness-NTU wants the
-13 K inlet-to-inlet difference. That asked for an effectiveness of 3.33.
+Once flows were visible, three of my mistakes showed (commit
+[`26411a3`](https://github.com/sinkers/sd-dc/commit/26411a3)):
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| 8.5 m/s in the facility mains | I used RD110's only size callout, DN150, for the mains too | DN300 sized on velocity; facility pump 42.9 m, 30 kW → 23.0 m, 16.8 kW |
+| Tripped CDU passing −62 m³/h | No non-return valve, so live CDUs drove flow back through it | `CheckValve` |
+| Losing a pump raised flow to 193 kg/s against a 152 kg/s design | I reported one pump's flow × pump count | Sum of each pump's solved flow |
+
+Two more were arithmetic. I calibrated the CDU plate on the 3 K terminal
+approach where ε-NTU needs the 13 K inlet-to-inlet difference, which asked
+for ε = 3.33;
 [`hx.py`](https://github.com/sinkers/sd-dc/blob/e30c13299f903d0d249215cafc3a64ad401e8911/liquid-twin/loop/dtloop/hx.py)
-now raises on anything outside 0 to 1, which is how it surfaced.
+now raises outside 0 to 1, which is how it surfaced. And I first applied
+87 % to the whole 7,536 kW of IT, giving 6,556 kW, more than the 6,225 kW
+of N+1 chiller capacity. The 48 networking racks are air-cooled; 87 % of
+the AI racks is 5,930 kW, and a test pins it.
 
-The viewer is static: HTML, one JS module, a 0.6 MB geometry bundle and a
-manifest of solved hydraulics. No service to run.
+## The cable side
 
-## The rest of the loop
-
-On the cable side, trefoil formation was already in the engine but no caller
-could reach it. Every request fell back to a guess and warned about it.
-It's now a stated input on both sizing tools, and the response says which
-formation it used. The MCP server only spoke stdio, which a hosted client
-can't start, so
+Trefoil formation was in the cable engine but no caller could reach it. It
+is now an input on both sizing tools, and the response says which formation
+was used.
 [`http_mcp_server.py`](https://github.com/sinkers/sd-dc/blob/e30c13299f903d0d249215cafc3a64ad401e8911/cable-sizing/http_mcp_server.py)
-serves the same handler over HTTP. There's one implementation of the answer,
-so the two can't disagree.
+serves the stdio MCP handler over HTTP for hosted clients, so there is one
+implementation of the answer. The
+README now names [IndustroML](https://github.com/sinkers/industroml) as the
+model the tools share.
 
-Finally, the README now names [IndustroML](https://github.com/sinkers/industroml)
-as the model in the middle of the loop: containers, assets, interfaces and
-connections in one schema. A connection that carries a route through named
-trays is an electrical fact, a geometric fact and a line on a bill of
-materials at once, which is what lets one tool hand a length to the next.
+## Limits
 
-## What doesn't work yet
+- Phase 1 of 6: hydraulics only, no thermal transport. A starved rack
+  reports "starved", not a temperature.
+- Every run is straight or a single right angle, so fitting losses are a
+  floor. The [pipe router](https://sinkers.github.io/devlog/2026/10/13/pipe-router/)
+  came later for that.
+- The objection: the crossover depends on constants I picked. Coil UA,
+  fan power and the COP curve are my judgement, graded L in the code, not
+  RD110 figures. UA comes from assuming full free cooling at rated load at
+  20 °C ambient, and each 1 K moved in that assumption moves the crossover
+  by 0.95 K. What I'd rely on before a vendor selection is the shape: which
+  regime the plant is in and which way each change moves it.
 
-The liquid model is Phase 1 of 6: hydraulics, no thermal transport, so a
-starved rack reports "starved" rather than a temperature. Every run in the
-layout is straight or one right angle, so fitting losses are a floor. The
-[pipe router](https://sinkers.github.io/devlog/2026/10/13/pipe-router/)
-came later for that. The suite at the end of the period was 137 liquid-twin
-tests, all green. The code is MIT on [GitHub](https://github.com/sinkers/sd-dc).
+The code is MIT on [GitHub](https://github.com/sinkers/sd-dc).
