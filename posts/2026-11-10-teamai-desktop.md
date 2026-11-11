@@ -1,92 +1,67 @@
 ---
-title: "TeamAICoder 0.1.0: one window for many projects and their agents"
+title: "TeamAICoder: 11 merged PRs and a notarised 0.1.0 build"
 project: teamaicoder
 repos: [teamaicoder/teamai-desktop, teamaicoder/sitekit, teamaicoder/teamaicoder.com]
 canonical: https://sinkers.github.io/devlog/2026/11/10/teamai-desktop/
 hero: ../images/2026-11-10-teamai-desktop/hero.png
 hero_alt: "The TeamAICoder app in its Build section: a terminal showing the repo's git log on the left and the teamaicoder.com home page in the preview on the right"
 channels: [devlog, medium]
-summary: "TeamAICoder, an open-source Electron workbench for running many software projects with AI coding agents, now builds as a signed, notarised macOS app. What went into 0.1.0, what the tests cover, and the small toolkit that makes its website findable."
+summary: "Eleven PRs merged into the TeamAICoder Electron app between 28 October and 9 November 2026, unit tests up from 46 to 141, and a signed, notarised 0.1.0 build in an open PR. Plus sitekit, which generates the crawler files for the project's website."
 ---
 
-# TeamAICoder 0.1.0: one window for many projects and their agents
+# TeamAICoder: 11 merged PRs and a notarised 0.1.0 build
 
-I run a lot of software projects at once, and most of the building is done
-by AI coding agents in terminals. The hard part isn't the agents. It's
-keeping track of which terminal belongs to which project, where the spec is,
-and what's waiting on me.
-[TeamAICoder](https://github.com/teamaicoder/teamai-desktop) is the
-open-source workbench I'm building in public to do that. Today it builds as a
-signed, notarised macOS app, version 0.1.0.
+[TeamAICoder](https://github.com/teamaicoder/teamai-desktop) is an
+open-source Electron app for running many software projects with AI coding
+agents in one window. Between 28 October and 9 November 2026 (Sydney time)
+11 PRs were merged into it, and the unit tests went from 46 to 141. On
+10 November I opened
+[#15](https://github.com/teamaicoder/teamai-desktop/pull/15), which signs
+and notarises a 0.1.0 build for macOS. As of 11 November #15 is open, not
+merged, and there is no 0.1.0 release or tag on GitHub.
 
 ## What it is
 
-One Electron window, organised by stage of a project's life: Ideas, Design,
-Plan & Track, Build, Test, Deploy and Operate. Each section has its own
-folder, file tree and tab strip. A tab is a file (Markdown or code), a real
-terminal (node-pty and xterm.js), or a web page. Run `claude`, `codex` or
-anything else in a terminal, and keep the spec and the GitHub board in the
-next tab.
-
-The work from the last two weeks, in the order it landed:
-
-- **Electron 31 to 44** ([#3](https://github.com/teamaicoder/teamai-desktop/pull/3)).
-  This wasn't optional. macOS started blocking Electron 31.7.7 as malware:
-  `spctl` reported that its notarisation had been revoked. The binary
-  matched the official SHA-256, so it was a revocation, not tampering. The
-  upgrade also swapped the deprecated `electron-rebuild` for
-  `@electron/rebuild`.
-- **CI** ([#6](https://github.com/teamaicoder/teamai-desktop/pull/6)). The
-  repo had none. Every PR now runs the Jest unit tests, the Playwright UI
-  tests driving the real Electron app, and an unsigned build, on
-  `macos-latest`.
-- **A Workbench tab** ([#7](https://github.com/teamaicoder/teamai-desktop/pull/7))
-  that embeds my project dashboard in its own persistent session, so I stay
-  signed in across restarts. Links to other sites open in the system browser.
-- **Open Markdown from Finder** ([#10](https://github.com/teamaicoder/teamai-desktop/pull/10)).
-  The app declares a Markdown document type, so it can be the default app
-  for `.md` files. One finding: the older `LSSetDefaultRoleHandlerForContentType`
-  returns success but is ignored on current macOS, so `make default-markdown`
-  uses `NSWorkspace.setDefaultApplication` instead.
-- **Chat + Preview** ([#12](https://github.com/teamaicoder/teamai-desktop/pull/12)):
-  a terminal on the left for the agent and a browser on the right, with a
-  draggable divider. Every preview tab shares one persistent session, so a
-  SharePoint or Google Docs sign-in happens once.
-- **Projects, session restore and status boards**
-  ([#13](https://github.com/teamaicoder/teamai-desktop/pull/13)). Projects
-  are imported from a folder of Markdown files with YAML frontmatter, and
-  each repo is matched to its local checkout by its `origin` remote. On
-  relaunch every section's tabs come back. If exactly one terminal in a
-  folder was running `claude`, the restored one runs `claude --continue`.
-- **Board actions** ([#14](https://github.com/teamaicoder/teamai-desktop/pull/14)),
-  covered below.
+One window, split by project stage: Ideas, Design, Plan & Track, Build,
+Test, Deploy and Operate. Each section has its own folder, file tree and
+tabs. A tab is a Markdown or code file, a terminal (node-pty and xterm.js),
+a web page, or a Chat + Preview split: terminal on the left, browser on the
+right.
 
 ![TeamAICoder's Chat + Preview tab: the project's file tree, a terminal and a live preview of a web page side by side](../images/2026-11-10-teamai-desktop/chat-preview.png)
 
-*A Chat + Preview tab in the Build section, captured from the app by a Playwright script. The left pane is a real shell in the repo.*
+*A Chat + Preview tab in Build, captured by a Playwright script from a
+throwaway profile with a set prompt. Left: `git log` of the repo at
+`3575dd0`. Right: teamaicoder.com.*
 
-## Getting a browser sign-in to work inside the app
+| PR | Merged | What changed |
+|---|---|---|
+| [#2](https://github.com/teamaicoder/teamai-desktop/pull/2) | 28 Oct | Setup, install, troubleshooting and roadmap docs |
+| [#3](https://github.com/teamaicoder/teamai-desktop/pull/3) | 28 Oct | Electron 31 to 44; `electron-rebuild` to `@electron/rebuild` |
+| [#4](https://github.com/teamaicoder/teamai-desktop/pull/4), [#5](https://github.com/teamaicoder/teamai-desktop/pull/5) | 28 Oct | Markdown code-block clipping; browser views not closed with their tab |
+| [#6](https://github.com/teamaicoder/teamai-desktop/pull/6) | 2 Nov | CI on `macos-latest`: unit, UI, unsigned build. None before |
+| [#7](https://github.com/teamaicoder/teamai-desktop/pull/7) | 2 Nov | Workbench tab: a configured URL in a `persist:workbench` session |
+| [#10](https://github.com/teamaicoder/teamai-desktop/pull/10) | 2 Nov | Markdown document type, so Finder opens `.md` files in the app |
+| [#11](https://github.com/teamaicoder/teamai-desktop/pull/11), [#12](https://github.com/teamaicoder/teamai-desktop/pull/12) | 9 Nov | App icon; Chat + Preview, one `persist:preview` session for all previews |
+| [#13](https://github.com/teamaicoder/teamai-desktop/pull/13) | 9 Nov | Projects imported from Markdown files, session restore, status boards |
+| [#14](https://github.com/teamaicoder/teamai-desktop/pull/14) | 9 Nov | Board actions from a Status tab |
 
-Embedding sign-in pages was the most fiddly part. Microsoft and Google
-sign-in both stalled on the passkey prompt, because Electron has no passkey
-UI. Preview pages now hide WebAuthn, so both fall back to a password and an
-authenticator app. Google still refused embedded Chromium even with a plain
-Chrome user agent, so on `accounts.google.com` only, the preview presents
-itself as Firefox. That's a workaround, not a fix. If your organisation
-requires phishing-resistant MFA, the toolbar has an "open in system browser"
-button.
+#3 was forced. macOS blocked Electron 31.7.7 as malware: `spctl` said its
+notarisation had been revoked. The binary matched the published SHA-256, so
+it was a revocation, not tampering.
 
-## Acting on a status board
+## How the board actions work
 
-A section can pin a status page as its first tab. It refreshes in the
-background, at most every two minutes. Since #14, buttons on that page can
-do things. A `teamaicoder://terminal?project=<slug>&prompt=<text>` link
-opens a Chat + Preview tab in the project's folder and starts Claude Code on
-the prompt. A `teamaicoder://action` link sends a JSON payload to a script
-of mine on stdin, then refreshes the board.
+A section can pin a status page as its first tab, refreshed in the
+background at most every 2 minutes. Since #14 two link forms on that page do
+something. `teamaicoder://terminal?project=<slug>&prompt=<text>` opens a
+Chat + Preview tab in the project's folder and types `claude '<prompt>'`.
+`teamaicoder://action?payload=<JSON>` runs a configured command with the
+payload on stdin (64 KB cap, 60 s timeout) and refreshes the board on
+exit 0.
 
-Typing a page-supplied prompt into a shell is the risky bit, so the prompt
-is cleaned and quoted as one argument before it gets near the terminal
+The prompt comes from a web page and is typed into a shell, so it is
+cleaned and quoted as one argument
 ([handlers.js](https://github.com/teamaicoder/teamai-desktop/blob/3575dd06af98a9ce2b020e599769566b400fac9f/main/handlers.js#L521-L533)):
 
 ```js
@@ -94,7 +69,7 @@ function cleanPrompt(text) {
   return String(text == null ? '' : text)
     .replace(/[\u0000-\u001f\u007f-\u009f]+/g, ' ')
     .trim()
-    .slice(0, PROMPT_MAX_CHARS);
+    .slice(0, PROMPT_MAX_CHARS);   // 4000
 }
 
 function claudeCommand(prompt) {
@@ -103,61 +78,98 @@ function claudeCommand(prompt) {
 }
 ```
 
-One unit test passes a quoted prompt to a real `/bin/sh` and checks it
-arrives as one argument. The links only work in a Status tab: ordinary
-browser tabs drop them, and the commands and project folders come from
-preferences on disk, never from the page.
+Main, not the renderer, decides which views are Status views. Other browser
+tabs drop `teamaicoder://` links. The command and the project folders are
+read from preferences on disk, never from the page.
 
-## Signed and notarised
+## What I checked it against
 
-The release work is in
-[#15](https://github.com/teamaicoder/teamai-desktop/pull/15). The app now
-runs under the hardened runtime, with
-[entitlements](https://github.com/teamaicoder/teamai-desktop/blob/71d1dd30d87f4836b816d2d324a3957001c5c284/build/entitlements.mac.plist)
-for Electron's JIT and node-pty's native module, and is notarised with an
-App Store Connect API key. `npm run dist:release` builds a `.dmg` and a
-`.zip` for both Apple silicon and Intel.
+I re-ran the tests at each merge commit: `jest --json` for the unit tests
+and `playwright test --list` for the UI tests. All unit tests pass at every
+commit.
 
-Pushing a `v*` tag runs
-[release.yml](https://github.com/teamaicoder/teamai-desktop/blob/71d1dd30d87f4836b816d2d324a3957001c5c284/.github/workflows/release.yml).
-It builds and notarises, checks each app with `codesign`, `spctl` and
-`stapler`, runs the Playwright suite against the packaged Apple silicon app,
-runs it again against the Intel app on a `macos-15-intel` runner, then
-attaches everything to a draft release for me to publish. One workaround:
+![Line chart of unit and UI test counts at each merge commit from #3 to #15: unit tests 46 to 141, UI tests 42 to 84](../images/2026-11-10-teamai-desktop/test-counts.png)
+
+*Test counts at each merge commit, and at #15's branch head `71d1dd3`.
+Unit: Jest `numTotalTests`. UI: `playwright test --list`.*
+
+Three PR descriptions disagree with the run. #6 says 36 unit tests; there
+were 46. #13 says 125 unit and 76 UI; the merge commit has 130 and 77. #14
+says 83 UI; it lists 84. The descriptions were written before the last
+commits on each branch.
+
+One unit test sends a prompt holding `'`, `$HOME`, backticks, `$(...)`
+and `*` through a real `/bin/sh` and checks it arrives unchanged as one
+argument. The UI test for #14 puts a stand-in `claude` on `PATH` and checks
+a multi-line prompt end to end.
+
+## Sign-in inside the app
+
+Microsoft and Google sign-in stalled on the passkey prompt, because
+Electron has no passkey UI. Preview pages now hide WebAuthn, so both fall
+back to a password and an authenticator app. Google still refused embedded
+Chromium with a plain Chrome user agent, so on `accounts.google.com` only
+the preview presents as Firefox. That is a workaround. Where an organisation
+requires phishing-resistant MFA, the toolbar's "open in system browser" is
+the only route.
+
+## Signing and notarisation (#15, open)
+
+#15 turns on the hardened runtime with three
+[entitlements](https://github.com/teamaicoder/teamai-desktop/blob/71d1dd30d87f4836b816d2d324a3957001c5c284/build/entitlements.mac.plist):
+JIT and unsigned executable memory for V8, and disabled library validation
+for node-pty's native module. Notarisation uses an App Store Connect API
+key. `npm run dist:release` builds a `.dmg` and `.zip` for arm64 and x64.
+
+A `v*` tag runs
+[release.yml](https://github.com/teamaicoder/teamai-desktop/blob/71d1dd30d87f4836b816d2d324a3957001c5c284/.github/workflows/release.yml):
+
+| Job | Runner | Does |
+|---|---|---|
+| `build-mac` | `macos-latest` | build, sign, notarise; `codesign`, `spctl`, `stapler`; UI suite on the packaged arm64 app |
+| `test-intel` | `macos-15-intel` | `spctl`; UI suite on the packaged x64 app |
+| `draft-release` | `ubuntu-latest` | attach both to a draft release |
+
 electron-builder 26.8 unlocks its own keychain with the wrong password, so
 the workflow imports the certificate into a job keychain itself.
 
-Locally, both apps were notarised and stapled, the app inside a quarantined
-DMG was accepted by Gatekeeper, and 84 UI tests and 141 unit tests passed
-against the notarised Apple silicon build. The Intel app hasn't been tested
-yet. That happens on the workflow's first run.
+Locally, both apps were notarised and stapled, the app in a quarantined DMG
+passed Gatekeeper, and 84 UI and 141 unit tests passed against the
+notarised arm64 build. The x64 app has not been run. The workflow is only on
+the PR branch, so it has never run.
 
-## Being findable: sitekit
+## sitekit
 
-A desktop app nobody can find doesn't help anyone, so the same week I wrote
-[sitekit](https://github.com/teamaicoder/sitekit), a small Python toolkit
-(standard library, plus Pillow for share images). `sitekit build` fills in
-what a static site lacks: `sitemap.xml`, a `robots.txt` that names and
-allows search and AI crawlers, `llms.txt`, an IndexNow key and missing head
-tags. It only adds, and never touches a file the site wrote itself.
-`sitekit audit` checks the live site the way crawlers see it, including
-whether a CDN challenges `OAI-SearchBot`, `Claude-SearchBot` or
-`PerplexityBot`. `sitekit track` snapshots competitors' releases, posts,
-taglines and pricing pages and reports what changed.
+[sitekit](https://github.com/teamaicoder/sitekit) is a Python package
+(standard library; Pillow optional for share images, 15 unit tests).
+`sitekit build` adds what a static site lacks: `sitemap.xml`, a
+`robots.txt` naming 16 search, AI and training crawlers, `llms.txt`, an
+IndexNow key and missing head tags. It never overwrites a file the site
+wrote. `sitekit track` watches competitors;
+[teamaicoder.com's config](https://github.com/teamaicoder/teamaicoder.com/blob/0fd86107ae1dae94661205d5b02e3bf7e2921b84/sitekit.toml)
+lists seven. I expect nothing from `llms.txt`, since crawlers rarely fetch
+it.
 
-[teamaicoder.com](https://teamaicoder.com) is the first site using it: its
-[sitekit.toml](https://github.com/teamaicoder/teamaicoder.com/blob/0fd86107ae1dae94661205d5b02e3bf7e2921b84/sitekit.toml)
-lists seven tools to watch, from Conductor to Claude Squad. My honest
-expectation for `llms.txt` is nothing: crawlers rarely fetch it. It's
-generated because it costs nothing. Search indexing is what gets a page into
-AI answers.
+`sitekit audit https://teamaicoder.com` on 11 November passed all nine
+checks, including a 200 for `OAI-SearchBot`, `Claude-SearchBot` and
+`PerplexityBot`. It also showed my mistake: the share image is `icon.png`.
+The page already had an `og:image`, so sitekit left it alone and the
+1200×630 `og.png` it made is unused.
 
-## What's next
+## Limits
 
-0.1.0 is macOS only. Pages opened by tools that call macOS `open` directly,
-rather than `$BROWSER`, still go to the external browser, and terminal
-scrollback isn't restored. Next on the
-[roadmap](https://github.com/teamaicoder/teamai-desktop/blob/3575dd06af98a9ce2b020e599769566b400fac9f/docs/roadmap.md)
-are GitHub sign-in, and coding agents running on your own Kubernetes
-cluster instead of your laptop. The code is MIT on
-[GitHub](https://github.com/teamaicoder/teamai-desktop).
+- No release yet. Until #15 merges and a tag is pushed, the site's
+  "Download for Mac" button falls back to build-from-source.
+- macOS only.
+- Tools that call macOS `open` rather than `$BROWSER` still go to the
+  external browser. Terminal scrollback isn't restored.
+- The obvious objection: a web page that can start a shell command. The
+  page chooses a project slug and prompt text only. The command is fixed,
+  the prompt is one quoted argument, and only a Status tab acts on the link.
+  A hostile board can still send Claude Code a hostile prompt, so point
+  Status tabs only at pages you control.
+
+Next on the
+[roadmap](https://github.com/teamaicoder/teamai-desktop/blob/3575dd06af98a9ce2b020e599769566b400fac9f/docs/roadmap.md):
+GitHub sign-in, and agents running on your own Kubernetes cluster. MIT
+licence.
