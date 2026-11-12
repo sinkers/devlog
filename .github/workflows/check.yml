@@ -9,3 +9,5 @@ jobs:
         with: { python-version: "3.12" }
       - run: pip install "markdown>=3.5,<4"
       - run: python check.py
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}   # rate limit; visibility is read from the API's private field

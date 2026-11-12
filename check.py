@@ -7,7 +7,8 @@
 - alt text on every image in the body
 - 600-1200 words, at least one code block
 - every github.com/<o>/<r>/blob link is pinned to a commit sha, never a branch
-- every link resolves, and every linked repo is public
+- every link resolves, and every linked or `repos:` repo is public (reads the
+  API's `private` field; set GITHUB_TOKEN to avoid the 60/hour limit)
 - elsewhere/*.md (articles published on other sites, listed in the index):
   title, an ISO date, an https url, venue, project, summary and a hero that
   exists
@@ -20,6 +21,8 @@ publish them. The dashboard checks those before a draft can be approved.
 """
 from __future__ import annotations
 
+import json
+import os
 import re
 import struct
 import sys
@@ -64,6 +67,42 @@ def resolves(url: str) -> bool:
         except Exception:  # noqa: BLE001
             return False
     return False
+
+
+_visibility: dict[str, str] = {}
+
+
+def repo_visibility(slug: str) -> str:
+    """'public', 'private' or 'unknown: <why>' for owner/repo.
+
+    Reads the API's `private` field, never just the status: with GITHUB_TOKEN
+    set, the API also answers 200 for private repos the token can see. The
+    token is there for the rate limit (60 requests an hour without it, which
+    parallel runs used up and reported as "not public"). A 404 means private
+    or missing, which is a failure either way. A rate limit or network error is
+    'unknown', and reported as that rather than as private.
+    """
+    if slug in _visibility:
+        return _visibility[slug]
+    headers = {**UA, "Accept": "application/vnd.github+json"}
+    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    try:
+        req = urllib.request.Request(f"https://api.github.com/repos/{slug}", headers=headers)
+        with urllib.request.urlopen(req, timeout=20) as r:
+            result = "private" if json.load(r).get("private", True) else "public"
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            result = "private"
+        elif exc.code in (403, 429):
+            result = "unknown: GitHub rate limit; set GITHUB_TOKEN"
+        else:
+            result = f"unknown: HTTP {exc.code}"
+    except Exception as exc:  # noqa: BLE001
+        result = f"unknown: {exc}"
+    _visibility[slug] = result
+    return result
 
 
 def check(post: Path, online: bool) -> list[str]:
@@ -118,9 +157,13 @@ def check(post: Path, online: bool) -> list[str]:
         for url in sorted(links):
             if not resolves(url):
                 errs.append(f"does not resolve: {url}")
-        for owner, repo in sorted({m for u in links for m in re.findall(r"https://github\.com/([^/]+)/([^/#)]+)", u)}):
-            if not resolves(f"https://api.github.com/repos/{owner}/{repo}"):
-                errs.append(f"repo is not public: {owner}/{repo}")
+        linked = {f"{o}/{r}" for u in links for o, r in re.findall(r"https://github\.com/([^/]+)/([^/#)?]+)", u)}
+        for slug in sorted(linked | set(fm.get("repos") or [])):
+            vis = repo_visibility(slug)
+            if vis == "private":
+                errs.append(f"repo is not public: {slug}")
+            elif vis != "public":
+                errs.append(f"could not check {slug} is public ({vis[9:]})")
     return errs
 
 
