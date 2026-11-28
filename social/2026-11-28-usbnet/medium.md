@@ -1,5 +1,5 @@
 ---
-title: "usbnet: flashing an ESP32 on a Raspberry Pi from a Mac"
+title: "usbnet: flashing an ESP32 and an Uno on a Raspberry Pi from a Mac"
 subtitle: "macOS has no USB/IP client, so serial boards on a Pi are bridged over RFC2217 instead: what works from a Mac, what doesn't, and why"
 tags: [ESP32, Raspberry Pi, macOS, Embedded Systems, Open Source]
 canonical: https://sinkers.github.io/devlog/2026/11/28/usbnet/
@@ -20,6 +20,7 @@ read back 256 KB of flash byte-identically at 115200 and 460800 baud.
 
 The full write-up covers how it works, the tests, what went wrong (ser2net
 couldn't reset an ESP32 into its bootloader over the network; Espressif's own
-RFC2217 server can) and the limits from a Mac. Uploads to AVR boards with
-avrdude don't work yet, `arduino-cli monitor` won't open a pty, and 921600
-baud corrupts reads.
+RFC2217 server can; Uno uploads needed a byte trace to find an off-by-one
+reply) and the limits from a Mac. `arduino-cli upload` to an Uno works, 3 of
+3 in 6 to 8 seconds. `arduino-cli monitor` won't open a pty, and 921600 baud
+corrupts reads.
